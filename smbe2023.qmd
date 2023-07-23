@@ -1,0 +1,661 @@
+---
+title: |
+  The impact of whole-genome duplications in the topology of 
+  angiosperm gene regulatory networks
+author: "**Fabricio Almeida-Silva** and Yves Van de Peer"
+institute: "VIB-UGent Center for Plant Systems Biology"
+knitr:
+    opts_chunk: 
+      fig.align: 'center'
+execute:
+    message: false
+    warning: false
+format:
+    revealjs:
+        self-contained: true
+        width: 1600
+        height: 900
+        theme: [default, styles.scss]
+        incremental: true
+        logo: "https://www.psb.ugent.be/themes/custom/minimalplus/logo.svg"
+        footer: "Fabricio Almeida-Silva @almeidasilvaf"
+        highlight-style: "a11y"
+        title-slide-attributes:
+            data-background-image: "figs/smbe2023/cover.png"
+            data-background-size: 40%
+            data-background-position: 99% 50%
+---
+
+```{r cover_figure}
+#| include: false
+#| eval: false
+#| echo: false
+# Code to create image in cover
+library(flametree)
+library(ggplot2)
+cover <- flametree_grow(
+  trees = 10,
+  time = 7,
+  shift_x = spark_random(multiplier = 1),
+  shift_y = spark_random(multiplier = 1)
+) %>% 
+  flametree_plot(
+      style = "nativeflora", background = "transparent"
+)
+
+out_file <- here::here("figs/smbe2023/cover.png")
+ggplot2::ggsave(
+    cover, 
+    filename = out_file,
+    dpi = 300, width = 5, height = 10
+)
+```
+
+## Whole-genome duplications (WGD)
+
+::: columns
+::: {.column width='60%'}
+
+**WGD** or **poliploidy**: duplication of an organism's entire set of
+chromosomes.
+
+Key source of extra genetic material for evolution to work with.
+
+WGD events have occurred in multiple taxa, e.g.:
+
+- vertebrates (2 WGD + 1 WGD shared by all teleosts)
+- yeasts
+- **plants**: multiple independent events!
+
+:::
+
+::: {.column width='40%'}
+
+![](figs/smbe2023/ohno-book.jpeg){width='90%' fig-align='center'}
+
+:::
+:::
+
+
+
+## Whole-genome duplications (WGD) in plants
+
+::: aside
+Van de Peer et al. 2017. *Nature Reviews Genetics*
+:::
+
+::: columns
+::: {.column width='40%'}
+
+WGD have contributed to:
+
+- radiation of important families
+- increased diversity
+- survival in stressful times
+
+:::
+
+::: {.column width='60%'}
+
+![](figs/smbe2023/plant_phylogeny.png){fig-align='center'}
+
+:::
+:::
+
+
+
+
+## Poliploidy: an evolutionary dead end?
+
+Survival and establishment of polyploids is challenging.
+
+Detrimental effects of WGD include:
+
+- reduced fertility
+- genomic shock
+
+. . .
+
+Surviving polyploids undergo a rediploidization process that leads to 
+genome fractionation (i.e., loss of functional DNA sequences).
+
+
+## Biased retention of duplicated genes
+
+![](figs/smbe2023/gene_balance.png){.absolute bottom=5 right=5 width='40%'}
+
+::: aside
+Birchler & Veitia, 2010. *New Phytologist*
+:::
+
+Preferential retention of genes encoding proteins involved in intricately 
+connected systems, e.g.:
+
+::: {.nonincremental}
+- transcription factors (TFs)
+- kinases
+- members of multiprotein complexes
+:::
+
+
+::: columns
+
+::: {.column width='55%'}
+**The gene balance hypothesis:** preservation of stoichiometric balance 
+explains the biased retention.
+:::
+
+:::
+
+## From genes to networks
+
+Using TFs to study the impact of genome duplications.
+
+TF activity can be explored globally in **gene regulatory networks (GRNs)**.
+
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-height: 3
+library(igraph)
+library(ggnetwork)
+library(intergraph)
+
+# Define function to create incidence matrix from edge list
+edgelist2incidencematrix <- function(edgelist) {
+    
+    inc <- graph_from_data_frame(edgelist, directed = TRUE) |>
+        as_adjacency_matrix() |>
+        as.matrix()
+    
+    inc <- inc[rowSums(inc) > 0, , drop = FALSE]
+    inc <- inc[, colSums(inc) > 0, drop = FALSE]
+    
+    return(inc)
+}
+
+# Define functions to create motif representations
+motif <- function(type = "v") {
+    id <- paste0(sample(LETTERS, 5), collapse = "")
+    
+    if(type == "v") {
+        df <- data.frame(
+            from = c(paste0("tf", id, 1), paste0("tf", id, 2)),
+            to = c(paste0("target", id, 1), paste0("target", id, 1))
+        )
+    } else if(type == "lambda") {
+        df <- data.frame(
+            from = c(paste0("tf", id, 1), paste0("tf", id, 1)),
+            to = c(paste0("target", id, 1), paste0("target", id, 2))
+        )
+    } else if(type == "bifan") {
+        df <- data.frame(
+            from = c(
+                paste0("tf", id, 1), paste0("tf", id, 1),
+                paste0("tf", id, 2), paste0("tf", id, 2)
+            ),
+            to = c(
+                paste0("target", id, 1), paste0("target", id, 2),
+                paste0("target", id, 1), paste0("target", id, 2)
+            )
+        )
+    } else {
+        df <- data.frame(
+            from = paste0("tf", id),
+            to = paste0("target", id)
+        )
+    }
+    
+    return(df)
+}
+
+# Create edge list for motifs
+bipartite <- rbind(
+    motif("v"),
+    motif("lambda"),
+    motif("bifan"),
+    motif("simple"),
+    motif("bifan"),
+    motif("lambda"),
+    motif("v"),
+    motif("v"),
+    motif("lambda"),
+    motif("bifan"),
+    motif("simple"),
+    motif("bifan")
+)
+
+# Create a bipartite graph and get coordinates
+inc <- edgelist2incidencematrix(bipartite)
+graph <- graph_from_incidence_matrix(inc, directed = TRUE, mode = "out")
+
+# Plot graph
+network <- ggnetwork(graph, layout = layout_as_bipartite(graph))
+network$Class <- ifelse(startsWith(network$name, "tf"), "TF", "Target")
+
+p <- ggplot(
+    network, aes(x = x, y = y, xend = xend, yend = yend)
+) +
+    geom_edges(arrow = arrow(length = unit(3, "pt"), type = "closed")) +
+    geom_nodes(aes(color = Class), size = 5) +
+    scale_color_manual(values = c(TF = "darkorchid", Target = "palegreen3")) +
+    theme_blank() +
+    theme(legend.position = "top")
+
+p
+```
+
+
+## Network motifs: the building blocks of complex systems
+
+Network motifs are genetic circuits that have been positively selected.
+
+Gene and genome duplications can create novel motifs.
+
+<br>
+
+![](figs/smbe2023/motifs.png){fig-align='center' width='40%'}
+
+
+## What is the impact of gene and genome duplications in the topology of angiosperm GRNs? {background-color="black" background-image="figs/smbe2023/angiosperms-apg-iv.png" background-position="50% -13%"}
+
+
+## Data overview and summary stats
+
+Data source:
+
+::: {.nonincremental}
+- Proteomes, CDS, and genome annotation: **Ensembl Plants release 53**
+- PPI data (physical links, confidence > 0.5): **STRING**
+- RNA-seq data: **EBI's Expression Atlas**
+:::
+
+![](figs/smbe2023/table1_paper.png){fig-align="center" width="10%"}
+
+
+## Methods: Network inference
+
+::: columns
+::: {.column width='60%'}
+
+<br>
+
+1. Prediction of TFs: **planttfhunter**
+    - profile HMM search using the PlantTFDB scheme
+    
+2. GRN inference: **BioNERO**
+    - GENIE3 algorithm
+
+:::
+:::
+
+![](figs/smbe2023/hex_planttfhunter.png){.absolute top="14%" right="5%" width="20%"}
+
+![](figs/smbe2023/hex_BioNERO.png){.absolute top="45%" right="15%" width="20%"}
+
+
+
+## Methods: Finding and counting motifs
+
+::: columns
+::: {.column width='60%'}
+
+<br>
+
+1. Duplicate identification and substitution rates: **doubletrouble**
+    - Classification as **WGD-** and **SSD-**derived genes
+    - Ka, Ks, and Ka/Ks using the MYN model
+
+:::
+:::
+
+![](figs/smbe2023/hex_doubletrouble.png){.absolute top="14%" right="5%" width="20%"}
+
+![](figs/smbe2023/hex_magrene.png){.absolute top="45%" right="15%" width="20%"}
+
+
+## Methods: Finding and counting motifs
+
+::: columns
+::: {.column width='60%'}
+
+![](figs/smbe2023/sup_figure_s2.png){fig-align='center' width='85%'}
+
+:::
+:::
+
+![](figs/smbe2023/hex_doubletrouble.png){.absolute top="14%" right="5%" width="20%"}
+
+![](figs/smbe2023/hex_magrene.png){.absolute top="45%" right="15%" width="20%"}
+
+
+
+## Methods: Finding and counting motifs
+
+::: columns
+::: {.column width='60%'}
+
+<br>
+
+::: {.nonincremental}
+
+1. Duplicate identification and substitution rates: **doubletrouble**
+    - Classification as **WGD-** and **SSD-**derived genes
+    - Ka, Ks, and Ka/Ks using the MYN model
+
+2. Motif counting and significance assessment: **magrene**
+
+:::
+
+:::
+:::
+
+![](figs/smbe2023/hex_doubletrouble.png){.absolute top="14%" right="5%" width="20%"}
+
+![](figs/smbe2023/hex_magrene.png){.absolute top="45%" right="15%" width="20%"}
+
+
+## Methods: Finding and counting motifs
+
+::: columns
+::: {.column width='60%'}
+
+![](figs/smbe2023/fig1_paper.png)
+
+:::
+:::
+
+![](figs/smbe2023/hex_doubletrouble.png){.absolute top="14%" right="5%" width="20%"}
+
+![](figs/smbe2023/hex_magrene.png){.absolute top="45%" right="15%" width="20%"}
+
+
+## PPI networks are enriched in WGD-derived genes
+
+Enrichment of WGD-derived genes in the PPI networks of all species (P < 0.001).
+
+WGD-derived genes in PPI networks are enriched in dosage sensitive processes, e.g.: 
+
+- signal transduction
+- transcriptional regulation
+- translation
+- cell wall biogenesis
+- redox homeostasis
+- lipid metabolism
+
+. . .
+
+::: callout-tip
+## Conclusion
+
+Our findings agree with the gene balance hypothesis - 
+association between WGD and protein-protein interaction. 
+:::
+
+---
+
+### Sequence divergence is constrained in interacting ohnologs
+
+![](figs/smbe2023/fig2_paper.png){fig-align="center"}
+
+
+---
+
+### Sequence divergence is constrained in interacting ohnologs
+
+![](figs/smbe2023/fig2_paper.png){fig-align="center"}
+
+::: callout-tip
+
+## Conclusion
+
+Dosage balance imposes selective pressures that constrain sequence divergence in interacting WGD-derived genes.
+
+:::
+
+
+---
+
+### WGD-derived duplicates tend to interact with the same partners
+
+::: columns
+::: {.column width="40%"}
+
+Measuring interaction similarity:
+
+$$
+S(A,B) = \frac{2 \left| A \cap B \right|}{ \left|A \right| + \left| B \right|}
+$$
+
+WGD-derived pairs have higher interaction similarity than SSD-derived pairs.
+
+
+The difference is more pronounced for older pairs.
+
+:::
+
+::: {.column width="60%"}
+![](figs/smbe2023/fig3_paper.png){fig-align="center"}
+:::
+:::
+
+
+---
+
+### WGD-derived duplicates tend to interact with the same partners
+
+::: columns
+::: {.column width="40%"}
+
+Measuring interaction similarity:
+
+$$
+S(A,B) = \frac{2 \left| A \cap B \right|}{ \left|A \right| + \left| B \right|}
+$$
+
+WGD-derived pairs have higher interaction similarity than SSD-derived pairs.
+
+
+The difference is more pronounced for older pairs.
+
+::: callout-tip
+
+## Conclusion
+
+Dosage balance imposes selective pressures that prevent
+ohnologs from losing and gaining interactions.
+
+:::
+
+:::
+
+::: {.column width="60%"}
+![](figs/smbe2023/fig3_paper.png){fig-align="center"}
+:::
+:::
+
+---
+
+### (Recent) WGD fuel(ed) the emergence of network motifs
+
+
+![](figs/smbe2023/fig4ab_paper.png){fig-align='center'}
+
+
+Genes from recent WGD are more frequently part of motifs than genes from ancient WGD.
+
+WGD-derived motifs are quickly lost over time (fractionation or rewiring?)
+
+---
+
+### (Recent) WGD fuel(ed) the emergence of network motifs
+
+![](figs/smbe2023/fig4c_paper.png){fig-align='center'}
+
+Species with recent WGD events generally have higher motif frequencies, regardless of the duplication mode that created the genes forming motifs.
+
+
+---
+
+### (Recent) WGD fuel(ed) the emergence of network motifs
+
+![](figs/smbe2023/fig4c_paper.png){fig-align='center'}
+
+Species with recent WGD events generally have higher motif frequencies, regardless of the duplication mode that created the genes forming motifs.
+
+
+::: callout-tip
+
+## Conclusion
+
+WGD events have a more significant impact on the **short-term evolution** of polyploids.
+
+This explains associations between WGD events and surviving
+environmental turmoil (e.g., the Cretaceous-Paleogene extinction
+and glaciation events).
+
+:::
+
+---
+
+### WGD- and SSD-derived motifs are associated with different functions
+
+Functional enrichment of GO terms, InterPro domains, and TF families.
+
+::: columns
+::: {.column width='50%'}
+
+**WGD:** growth and development, especially 
+dosage dependent-processes, e.g.:
+
+- translation
+- transcriptional regulation
+- histone modifications
+- cell cycle regulation
+- carbohydrate and lipid metabolism
+
+:::
+
+::: {.column width='50%'}
+
+**SSD:** response to stress and environmental stimuli, e.g.:
+
+- oxidative stress
+- pathogenesis-related proteins
+- recognition of pathogen-associated molecular patterns
+- WRKY, ERF, and NAC TF families
+
+:::
+:::
+
+
+---
+
+### WGD- and SSD-derived motifs are associated with different functions
+
+Functional enrichment of GO terms, InterPro domains, and TF families.
+
+::: columns
+::: {.column width='50%'}
+
+**WGD:** growth and development, especially 
+dosage dependent-processes, e.g.:
+
+::: {.nonincremental}
+- translation
+- transcriptional regulation
+- histone modifications
+- cell cycle regulation
+- carbohydrate and lipid metabolism
+:::
+:::
+
+::: {.column width='50%'}
+
+**SSD:** response to stress and environmental stimuli, e.g.:
+
+::: {.nonincremental}
+- oxidative stress
+- pathogenesis-related proteins
+- recognition of pathogen-associated molecular patterns
+- WRKY, ERF, and NAC TF families
+:::
+:::
+
+:::
+
+
+::: callout-tip
+
+## Conclusion
+
+The patterns observed for WGD- and SSD-derived **motifs** are very similar to
+what has been observed for WGD- and SSD-derived **genes**.
+
+:::
+
+
+## Take-home messages
+
+Dosage balance imposes selective constraints to WGD-derived genes that lead to:
+
+1. Slower evolution at the sequence level (less substitutions/time)
+2. Slower evolution at the PPI level (less changes in partners/time)
+
+. . .
+
+WGD has a more significant impact in the **short-term** evolution of polyploids,
+but WGD-derived motifs are lost over time.
+
+. . .
+
+WGD contributes to GRNs with genes related to growth and development,
+while SSD contributes with stress-related genes.
+
+
+
+## Further reading
+
+![DOI: 10.1093/molbev/msad141](figs/smbe2023/paper_cover.png){fig-align='center'}
+
+## Acknowledgements
+
+<br>
+
+Dr. Yves Van de Peer (supervision)
+
+Ghent University and ERC (funding)
+
+VIB Center for Plant Systems Biology (infrastructure)
+
+![](figs/yves_profile_pic.jpg){.absolute width='23%' right=10 top=5}
+
+![](figs/ugent_logo.png){.absolute width='20%' top='50%' left='10%'}
+
+![](figs/erc_logo.png){.absolute width='15%' top='50%' right='45%'}
+
+![](figs/vib-psb_logo.png){.absolute width='25%' top='55%' right='12%'}
+
+
+## Here's where you can find me:
+
+::: columns
+::: {.column width="40%"}
+<br><br> ![](figs/find-me-at-coffee.png){width="80%"}
+:::
+
+::: {.column width="60%"}
+<br><br><br>
+
+{{< fa brands twitter >}} almeidasilvaf
+
+{{< fa brands github >}} almeidasilvaf
+
+{{< fa globe >}} https://almeidasilvaf.github.io
+
+{{< ai google-scholar >}} Fabricio Almeida-Silva
+
+{{< ai orcid >}} 0000-0002-5314-2964
+:::
+:::
